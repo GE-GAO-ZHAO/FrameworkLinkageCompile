@@ -1,0 +1,197 @@
+# iOS多framework实现联动编译
+
+# demo1
+
+第一步：创建主工程GZTest
+
+第二步：将GZTest改为pod库
+
+pod init 
+
+添加依赖的库
+
+pod update
+
+第三步：创建静态库GZFrameworkOne
+
+第四步：将GZFrameworkOne改为pod库
+
+pod init 
+
+添加依赖的库
+
+第五步：修改GZFrameworkOne / link的mach-o格式为静态库
+
+第六步：建立新的测试类GZTest
+
+```objectivec
+//////.h
+#import <Foundation/Foundation.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+@interface GZTest : NSObject
+
+-
+(void)test;
+
+@end
+
+NS_ASSUME_NONNULL_END
+
+//////.m
+#import "GZTest.h"
+
+@implementation GZTest
+
+- (void)test {
+    NSLog(@"hello i`m static framework! ");
+}
+
+@end
+```
+
+第六步：在GZFrameworkOne/build phase / Headers 将GZTest设置公开类
+
+第七步：进入GZTest工程，点击file/add file GZTest 
+
+![Xnip2022-05-21_17-27-57.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/00c0402c-cf33-49ae-a56c-c26d7525df94/Xnip2022-05-21_17-27-57.jpg)
+
+第八步：进入GZFrameworkOne/  build phase / link binary with libraries 添加  GZFrameworkOne公开头文件
+
+… 可按照第三到第八步 创建GZFrameworkTwo
+
+第九步：在主工程下工程添加如下代码测试
+
+```objectivec
+#import "ViewController.h"
+#import <GZFrameworkOne/GZTest.h>
+@interface ViewController ()
+
+@end
+
+@implementation ViewController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    // Do any additional setup after loading the view.
+    
+    GZTest *obj1 = [[GZTest alloc] init];
+    [obj1 test];
+    
+    Test *obj2 = [[Test alloc] init];
+    [obj2 test];
+}
+```
+
+运行结果如下：
+
+![Xnip2022-05-21_17-33-59.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/f80ff638-04c0-4897-8e45-78c6a801ca0b/Xnip2022-05-21_17-33-59.jpg)
+
+常见错误修复：
+
+1. ****-lPods-NewsPushClientSDK is not an object file****
+
+进入 build phase / binary  libabiry  删除.a文件
+
+# demo2
+
+1.单独编译一个framework
+
+第一步：新建单独编译库的target 注意：新建的是Aggregate
+
+![Xnip2022-05-22_17-58-20.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/cc0ae5ee-485d-46f2-b968-8bd14018c8ff/Xnip2022-05-22_17-58-20.jpg)
+
+第二步：进入 GZFrameworkOneBuild / build phase / 点击+号 新建 run script 脚本文件
+
+```bash
+# Type a script or drag a script file from your workspace to insert its path.
+#输出文件夹
+UNIVERSAL_OUTPUT_FOLDER="${SRCROOT}/Products"
+
+# 进行build
+build () {
+#打包项目的目录
+    TARGET_DIR=$1
+    #打包项目的名称
+    TARGET_NAME=$2
+    #build的输出目录
+    BUILD_DIR=$3
+    BUILD_ROOT=$4
+    #打包环境
+    CONFIGURATION=$5
+    #进入目标目录
+    cd "${TARGET_DIR}"
+
+    #分别编译模拟器和真机的Framework
+    xcodebuild -target "${TARGET_NAME}" -configuration ${CONFIGURATION} -sdk iphoneos BUILD_DIR="${BUILD_DIR}" BUILD_ROOT="${BUILD_ROOT}" 
+    xcodebuild -target "${TARGET_NAME}" -configuration ${CONFIGURATION} -sdk iphonesimulator BUILD_DIR="${BUILD_DIR}" BUILD_ROOT="${BUILD_ROOT}" 
+    
+    #回到上层目录
+    cd "${SRCROOT}"
+}
+# 进行打包并合并
+output () {
+    TARGET_DIR=$1
+    TARGET_NAME=$2
+    BUILD_DIR=$3
+    BUILD_ROOT=$4
+    CONFIGURATION=$5
+    #UNIVERSAL_OUTPUT_FOLDER=$6
+    
+    #创建输出目录，并删除之前的framework文件
+    mkdir -p "${UNIVERSAL_OUTPUT_FOLDER}"
+    
+    rm -rf "${UNIVERSAL_OUTPUT_FOLDER}/${TARGET_NAME}.framework"
+    # 进行build
+    build "${TARGET_DIR}" "${TARGET_NAME}" "${BUILD_DIR}" "${BUILD_ROOT}" "${CONFIGURATION}"
+
+    #拷贝framework到univer目录
+          
+    cp -R "${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/${TARGET_NAME}.framework" "${UNIVERSAL_OUTPUT_FOLDER}"
+    
+    #合并虚拟机和模拟器包
+    lipo -create -output "${UNIVERSAL_OUTPUT_FOLDER}/${TARGET_NAME}.framework/${TARGET_NAME}" "${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/${TARGET_NAME}.framework/${TARGET_NAME}" "${BUILD_DIR}/${CONFIGURATION}-iphoneos/${TARGET_NAME}.framework/${TARGET_NAME}"
+    
+    #echo "${UNIVERSAL_OUTPUT_FOLDER}/${TARGET_NAME}.framework  ${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/${TARGET_NAME}.framework/${TARGET_NAME}  ${BUILD_DIR}/${CONFIGURATION}-iphoneos/${TARGET_NAME}.framework/${TARGET_NAME}" ->output.text
+
+    
+    
+}
+
+#设置打包的target名字以及路径
+TARGET_NAMES=("GZFrameworkOne")
+TARGET_PATHS=("GZFrameworkOne")
+
+for INDEX in "${!TARGET_NAMES[@]}"
+do
+
+   
+#文件名和目录名
+TARGET_NAME="${TARGET_NAMES[$INDEX]}"
+TARGET_DIR="${SRCROOT}/${TARGET_PATHS[$INDEX]}"
+#打包并输出
+output "${TARGET_DIR}" "${TARGET_NAME}" "${BUILD_DIR}" "${BUILD_ROOT}" "${CONFIGURATION}"
+
+done
+#删除多余文件
+#rm -rf "${BUILD_DIR}/${CONFIGURATION}-iphonesimulator" "${BUILD_DIR}/${CONFIGURATION}-iphoneos"
+#打开输出的文件夹
+
+open "${UNIVERSAL_OUTPUT_FOLDER}"
+```
+
+选中GZFrameworkOneBuild然后编译：
+
+![Xnip2022-05-22_18-01-34.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/b28222b2-d80e-4b4f-a429-a56204cde22a/Xnip2022-05-22_18-01-34.jpg)
+
+![Xnip2022-05-22_18-02-13.jpg](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/949e2dc0-0c8a-4287-b532-bb133bc25671/Xnip2022-05-22_18-02-13.jpg)
+
+扩展如果我想打所有的静态库：
+
+
+
+# iOS多framework实现联动编译-----发布pod库
+在GZTest目录下执行 python3 sdk.py
+
+
